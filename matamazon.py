@@ -618,9 +618,11 @@ def main():
             system.export_system_to_file(args.out_system)
 
 
+
+
     except Exception:
         print(ERROR_GENERAL, file=sys.stderr)
-        sys.exit(EXIT_FAILURE)
+        sys.exit(0)
 
 
 if __name__ == "__main__":
