@@ -1,20 +1,104 @@
-# TODO add all imports needed here
-
+import sys
+import os
+import argparse
 import json
+
+EXIT_FAILURE = 1
+DEFAULT_AMOUNT = 1
+
+ERROR_USAGE = (
+    "Usage: python3 matamazon.py -l < matamazon_log > "
+    "-s < matamazon_system > -o <output_file> -os <out_matamazon_system>"
+)
+ERROR_GENERAL = "The matamazon script has encountered an error"
+
+CMD_REGISTER = "register"
+CMD_ADD = "add"
+CMD_UPDATE = "update"
+CMD_ORDER = "order"
+CMD_REMOVE = "remove"
+CMD_SEARCH = "search"
+
+class MatamazonArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        print(ERROR_USAGE , file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
+
 
 class InvalidIdException(Exception): #def exceptions
     pass
 class InvalidPriceException(Exception):
     pass
 
+def replace_underscore(string):
+    return string.replace("_", " ")
+
+
+def execute_log_file(log_path, system):
+    with open(log_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            parts = line.split()
+            cmd = parts[0]
+
+            if cmd == CMD_REGISTER:
+                class_type = parts[1].lower()
+                entity_id = int(parts[2])
+                name = replace_underscore(parts[3])
+                city = replace_underscore(parts[4])
+                address = replace_underscore(parts[5])
+
+                if class_type == "customer":
+                    entity = Customer(entity_id, name, city, address)
+                    system.register_entity(entity, True)
+                elif class_type == "supplier":
+                    entity = Supplier(entity_id, name, city, address)
+                    system.register_entity(entity, False)
+
+            elif cmd in (CMD_ADD, CMD_UPDATE):
+                prod_id = int(parts[1])
+                name = replace_underscore(parts[2])
+                price = float(parts[3])
+                supplier_id = int(parts[4])
+                quantity = int(parts[5])
+
+                product = Product(prod_id, name, price, supplier_id, quantity)
+                system.add_or_update_product(product)
+
+            elif cmd == CMD_ORDER:
+                customer_id = int(parts[1])
+                product_id = int(parts[2])
+                quantity = int(parts[3]) if len(parts) > 3 else DEFAULT_AMOUNT
+
+                res = system.place_order(customer_id, product_id, quantity)
+                if res != "The order has been accepted in the system":
+                    print(res)
+
+            elif cmd == CMD_REMOVE:
+                class_type = parts[1]
+                obj_id = int(parts[2])
+                system.remove_object(obj_id, class_type)
+
+            elif cmd == CMD_SEARCH:
+                query = replace_underscore(parts[1])
+                max_price = float(parts[2]) if len(parts) > 2 else None
+
+                results = system.search_products(query, max_price)
+                for prod in results:
+                    print(prod)
+
+
 
 class Person:
-    def __init__(self, person_id, name, city, address):
+    def __init__(self, id, name, city, address):
 
-        if type(person_id) is not int or person_id < 0:
+        if type(id) is not int or id < 0:
             raise InvalidIdException("Invalid Id provided")
 
-        self.id = person_id
+        self.id = id
         self.name = name
         self.city = city
         self.address = address
@@ -26,8 +110,8 @@ class Person:
 
 
 class Customer(Person):
-    def __init__(self, person_id, name, city, address):
-        super().__init__(person_id, name, city, address)
+    def __init__(self, id, name, city, address):
+        super().__init__(id, name, city, address)
     """
     Represents a customer in the Matamazon system.
 
@@ -49,8 +133,8 @@ class Customer(Person):
 
 
 class Supplier(Person):
-    def __init__(self, person_id, name, city, address):
-        super().__init__(person_id, name, city, address)
+    def __init__(self, id, name, city, address):
+        super().__init__(id, name, city, address)
     """
     Represents a supplier in the Matamazon system.
 
@@ -72,16 +156,16 @@ class Supplier(Person):
 
 
 class Product:
-    def __init__(self, product_id, name, price, supplier_id, quantity):
+    def __init__(self, id, name, price, supplier_id, quantity):
 
-        for val in (product_id, supplier_id, quantity):#check valid args
+        for val in (id, supplier_id, quantity):#check valid args
             if type(val) is not int or val < 0:
                 raise InvalidIdException(f"Invalid {val} value provided")
 
         if type(price) not in (int, float) or price < 0:
             raise InvalidPriceException(f"Invalid price provided")
 
-        self.id = product_id
+        self.id = id
         self.name = name
         self.price = price
         self.supplier_id = supplier_id
@@ -118,16 +202,16 @@ class Product:
 
 
 class Order:
-    def __init__(self, order_id, customer_id, product_id, quantity, total_price):
+    def __init__(self, id, customer_id, product_id, quantity, total_price):
 
-        for val in (order_id, customer_id, product_id, quantity):#check valid args
+        for val in (id, customer_id, product_id, quantity):#check valid args
             if type(val) is not int or val < 0:
                 raise InvalidIdException(f"Invalid {val} value provided")
 
         if type(total_price) not in (int, float) or total_price < 0:
             raise InvalidPriceException(f"Invalid price provided")
 
-        self.id = order_id
+        self.id = id
         self.customer_id = customer_id
         self.product_id = product_id
         self.quantity = quantity
@@ -509,5 +593,35 @@ def load_system_from_file(path):
     """
 
 
+def main():
+    parser = MatamazonArgumentParser()
+    parser.add_argument('-l', required=True, dest='log_file')
+    parser.add_argument('-s', required=False, dest='in_system')
+    parser.add_argument('-o', required=False, dest='out_orders')
+    parser.add_argument('-os', required=False, dest='out_system')
 
-# TODO all the main part here
+    args = parser.parse_args()
+
+    try:
+        if args.in_system:
+            system = load_system_from_file(args.in_system)
+        else:
+            system = MatamazonSystem()
+
+        execute_log_file(args.log_file, system)
+
+        if args.out_orders:
+            with open(args.out_orders, 'w') as f:
+                system.export_orders(f)
+
+        if args.out_system:
+            system.export_system_to_file(args.out_system)
+
+
+    except Exception:
+        print(ERROR_GENERAL, file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
+
+
+if __name__ == "__main__":
+    main()
